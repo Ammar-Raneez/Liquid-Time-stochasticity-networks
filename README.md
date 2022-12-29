@@ -1,3 +1,3 @@
-# LTC Algorithm
+# FYP Algorithm
 
-This repository contains the implementation of the LTC algorithm to be used in [Bit Destiny](https://github.com/Ammar-Raneez/Bit_Destiny)
+This repo contains code for the implementation of the novel algorithm used in [BitForecast](https://github.com/Ammar-Raneez/BitForecast)
