@@ -101,6 +101,38 @@ class LTCCell(tf.keras.layers.Layer):
 		output = next_state
 		return output, next_state
 
+	def get_param_constrain_op(self):
+		'''
+		Clips variable values to prevent exploding gradients
+		'''
+
+		cm_clipping_op = tf.Variable.assign(
+			self.cm_t,
+			tf.clip_by_value(self.cm_t, self._cm_t_min_value, self._cm_t_max_value)
+		)
+
+		gleak_clipping_op = tf.Variable.assign(
+			self.gleak,
+			tf.clip_by_value(self.gleak, self._gleak_min_value, self._gleak_max_value)
+		)
+
+		w_clipping_op = tf.Variable.assign(
+			self.W,
+			tf.clip_by_value(self.W, self._w_min_value, self._w_max_value)
+		)
+
+		sensory_w_clipping_op = tf.Variable.assign(
+			self.sensory_W,
+			tf.clip_by_value(self.sensory_W, self._w_min_value, self._w_max_value)
+		)
+
+		return [
+			cm_clipping_op,
+			gleak_clipping_op,
+			w_clipping_op,
+			sensory_w_clipping_op
+		]
+
 	def get_config(self):
 		'''
 		Enable serialization
@@ -321,6 +353,7 @@ class LTCCell(tf.keras.layers.Layer):
 
 		return inputs
 
+	@tf.function
 	def _ode_step_hybrid_euler(self, inputs, states):
 		'''
 		Implement Euler ODE solver - first-order numerical procedure
@@ -350,6 +383,7 @@ class LTCCell(tf.keras.layers.Layer):
 
 		return v_pre
 
+	@tf.function
 	def _ode_step_runge_kutta(self, inputs, states):
 		'''
 		Implement Runge-Kutta ODE solver - RK4, fourth-order numerical procedure
@@ -366,6 +400,7 @@ class LTCCell(tf.keras.layers.Layer):
 
 		return states
 
+	@tf.function
 	def _ode_step_explicit(self, inputs, states, _ode_solver_unfolds):
 		'''
 		Implement ODE explicit iterative solver - a generalization of RK4
@@ -384,6 +419,7 @@ class LTCCell(tf.keras.layers.Layer):
 
 		return v_pre
 
+	@tf.function
 	def _f_prime(self, inputs, states):
 		'''
 		Obtain f' for the ODE solvers
@@ -398,6 +434,7 @@ class LTCCell(tf.keras.layers.Layer):
 
 		return f_prime
 
+	@tf.function
 	def _calculate_f_prime(self, v_pre, sensory_w_activation, w_reduced_sensory):
 		'''
 		Helper function to calculate f'
@@ -416,6 +453,7 @@ class LTCCell(tf.keras.layers.Layer):
 
 		return 1 / self.cm_t * (self.gleak * (self.vleak - v_pre) + sum_in)
 
+	@tf.function
 	def _sigmoid(self, v_pre, mu, sigma):
 		v_pre = tf.reshape(v_pre, [-1, v_pre.shape[-1], 1])
 		mues = v_pre - mu
