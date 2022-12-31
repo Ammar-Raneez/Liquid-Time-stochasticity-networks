@@ -2,7 +2,7 @@
 A TensorFlow V2 implementation of the Liquid Time-Constant cell proposed
 by Hasani et al., (2020) at https://arxiv.org/pdf/2006.04439.pdf
 
-An RNN with with continuous-time hidden
+An RNN with continuous-time hidden
 states determined by ordinary differential equations
 '''
 
@@ -356,7 +356,7 @@ class LTCCell(tf.keras.layers.Layer):
 	@tf.function
 	def _ode_step_hybrid_euler(self, inputs, states):
 		'''
-		Implement Euler ODE solver - first-order numerical procedure
+		Implement custom Euler ODE solver - first-order numerical procedure
 		'''
 
 		# State returned as -> tuple(Tensor)
