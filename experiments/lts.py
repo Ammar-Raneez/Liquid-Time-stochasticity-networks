@@ -1,9 +1,9 @@
 '''
-A TensorFlow V2 implementation of the Liquid Time-Constant cell proposed
-by Hasani et al., (2020) at https://arxiv.org/pdf/2006.04439.pdf
+A TensorFlow V2 implementation of the Liquid Time-Stochasticity cell proposed
+by {......... ADD REFERENCE HERE .........}
 
 An RNN with continuous-time hidden
-states determined by ordinary differential equations
+states determined by stochastic differential equations
 '''
 
 import tensorflow as tf
@@ -11,31 +11,31 @@ import numpy as np
 from enum import Enum
 
 class MappingType(Enum):
-	Identity = 0
-	Linear = 1
-	Affine = 2
+	Affine = 0
 
-class ODESolver(Enum):
-	SemiImplicit = 0
-	Explicit = 1
-	RungeKutta = 2
+class SDESolver(Enum):
+	EulerMaruyama = 0
 
-class LTCCell(tf.keras.layers.Layer):
+class NoiseType(Enum):
+	diagonal = 0
+
+class LTSCell(tf.keras.layers.Layer):
 
 	def __init__(self, units, **kwargs):
 		'''
-		Initializes the LTC cell & parameters
+		Initializes the LTS cell & parameters
 		Calls parent Layer constructor to initialize required fields
 		'''
 
-		super(LTCCell, self).__init__(**kwargs)
+		super(LTSCell, self).__init__(**kwargs)
 		self.input_size = -1
 		self.units = units
 		self.built = False
 
-		# Number of ODE solver steps in one RNN step
-		self._ode_solver_unfolds = 6
-		self._solver = ODESolver.SemiImplicit
+		# Number of SDE solver steps in one RNN step
+		self._sde_solver_unfolds = 6
+		self._solver = SDESolver.EulerMaruyama
+		self._noise_type = NoiseType.diagonal
 
 		self._input_mapping = MappingType.Affine
 
@@ -79,66 +79,21 @@ class LTCCell(tf.keras.layers.Layer):
 	def call(self, inputs, states):
 		'''
 		Automatically calls build() the first time.
-		Runs the LTC cell for one step using the previous RNN cell output & state
-		by calculating a type of ODE solver to generate the next output and state
+		Runs the LTS cell for one step using the previous RNN cell output & state
+		by calculating the SDE solver to generate the next output and state
 		'''
 
 		inputs = self._map_inputs(inputs)
-
-		if self._solver == ODESolver.Explicit:
-				next_state = self._ode_step_explicit(
-					inputs,
-					states,
-					_ode_solver_unfolds = self._ode_solver_unfolds
-				)
-		elif self._solver == ODESolver.SemiImplicit:
-				next_state = self._ode_step_hybrid_euler(inputs, states)
-		elif self._solver == ODESolver.RungeKutta:
-				next_state = self._ode_step_runge_kutta(inputs, states)
-		else:
-				raise ValueError(f'Unknown ODE solver \'{str(self._solver)}\'')
-
+		next_state = self._sde_solver_euler_maruyama(inputs, states)
 		output = next_state
 		return output, next_state
-
-	def get_param_constrain_op(self):
-		'''
-		Clips variable values to prevent exploding gradients
-		'''
-
-		cm_clipping_op = tf.Variable.assign(
-			self.cm_t,
-			tf.clip_by_value(self.cm_t, self._cm_t_min_value, self._cm_t_max_value)
-		)
-
-		gleak_clipping_op = tf.Variable.assign(
-			self.gleak,
-			tf.clip_by_value(self.gleak, self._gleak_min_value, self._gleak_max_value)
-		)
-
-		w_clipping_op = tf.Variable.assign(
-			self.W,
-			tf.clip_by_value(self.W, self._w_min_value, self._w_max_value)
-		)
-
-		sensory_w_clipping_op = tf.Variable.assign(
-			self.sensory_W,
-			tf.clip_by_value(self.sensory_W, self._w_min_value, self._w_max_value)
-		)
-
-		return [
-			cm_clipping_op,
-			gleak_clipping_op,
-			w_clipping_op,
-			sensory_w_clipping_op
-		]
 
 	def get_config(self):
 		'''
 		Enable serialization
 		'''
 
-		config = super(LTCCell, self).get_config()
+		config = super(LTSCell, self).get_config()
 		config.update({ 'units': self.units })
 		return config
 
@@ -148,6 +103,7 @@ class LTCCell(tf.keras.layers.Layer):
 		Creates the variables to be used within __call__
 		'''
 
+		# Define sensory variables
 		self.sensory_mu = tf.Variable(
 			tf.random.uniform(
 				[self.input_size, self.units],
@@ -199,6 +155,7 @@ class LTCCell(tf.keras.layers.Layer):
 			shape = [self.input_size, self.units]
 		)
 
+		# Define base stochastic differential equation variables
 		self.mu = tf.Variable(
 			tf.random.uniform(
 				[self.units, self.units],
@@ -250,6 +207,7 @@ class LTCCell(tf.keras.layers.Layer):
 			shape = [self.units, self.units]
 		)
 
+		# Synaptic leakage conductance variables of the neural dynamics of small species
 		if self._fix_vleak is None:
 			self.vleak = tf.Variable(
 				tf.random.uniform(
@@ -345,17 +303,44 @@ class LTCCell(tf.keras.layers.Layer):
 				trainable = True
 			)
 
-		if self._input_mapping == MappingType.Affine or self._input_mapping == MappingType.Linear:
-			inputs = inputs * self._input_weights
-		if self._input_mapping == MappingType.Affine:
-			inputs = inputs + self._input_biases
+		inputs = inputs * self._input_weights
+		inputs = inputs + self._input_biases
 
 		return inputs
 
 	@tf.function
-	def _ode_step_hybrid_euler(self, inputs, states):
+	def _sde_solver_euler_maruyama(self, inputs, sstates):
 		'''
+		Implement Euler Maruyama implicit SDE solver
+		'''
+
+		# Define a simple Wiener process (Brownian motion)
+		time_step = 1
+		brownian_motion = tf.Variable(
+			tf.random.normal(
+				[self.units],
+				mean = 0.0,
+				stddev = tf.sqrt(time_step),
+				dtype = tf.float32
+			)
+		)
+
+		for _ in range(self._sde_solver_unfolds):
+			# Compute drift and diffusion terms
+			drift = self._sde_solver_drift(inputs, states)
+			diffusion = self._sde_solver_diffusion(inputs, states)
+
+			# Compute the next state
+			states = states + drift * time_step + diffusion * brownian_motion
+
+		return states
+
+	@tf.function
+	def _sde_solver_drift(self, inputs, states):
+		'''
+		Compute the drift term of the Euler-Maruyama SDE solver
 		Implement custom Euler ODE solver - first-order numerical procedure
+		Utilize the LTC's deterministic solver
 		'''
 
 		# State returned as -> tuple(Tensor); previous return state x(t), to produce x(t+1)
@@ -383,87 +368,10 @@ class LTCCell(tf.keras.layers.Layer):
 		return v_pre
 
 	@tf.function
-	def _ode_step_runge_kutta(self, inputs, states):
+	def _sde_solver_diffusion(self, inputs, states):
 		'''
-		Implement Runge-Kutta ODE solver - RK4, fourth-order numerical procedure
-		'''
-
-		h = 0.1
-		for _ in range(self._ode_solver_unfolds):
-			k1 = h * self._f_prime(inputs, states)
-			k2 = h * self._f_prime(inputs, states + k1 * 0.5)
-			k3 = h * self._f_prime(inputs, states + k2 * 0.5)
-			k4 = h * self._f_prime(inputs, states + k3)
-
-			states = states + 1.0 / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
-
-		return states
-
-	@tf.function
-	def _ode_step_explicit(self, inputs, states, _ode_solver_unfolds):
-		'''
-		Implement ODE explicit iterative solver - a generalization of RK4
+		Compute the diffusion term of the Euler-Maruyama SDE solver
 		'''
 
-		v_pre = states[0]
+		pass
 
-		# Pre-compute the effects of the sensory neurons
-		sensory_w_activation = self.sensory_W * self._sigmoid(inputs, self.sensory_mu, self.sensory_sigma)
-		w_reduced_sensory = tf.reduce_sum(input_tensor = sensory_w_activation, axis = 1)
-
-		# Unfold the ODE multiple times into one RNN step
-		for _ in range(_ode_solver_unfolds):
-			f_prime = self._calculate_f_prime(v_pre, sensory_w_activation, w_reduced_sensory)
-			v_pre = v_pre + 0.1 * f_prime
-
-		return v_pre
-
-	@tf.function
-	def _f_prime(self, inputs, states):
-		'''
-		Obtain f' for the ODE solvers
-		'''
-
-		v_pre = states[0]
-
-		# Pre-compute the effects of the sensory neurons
-		sensory_w_activation = self.sensory_W * self._sigmoid(inputs, self.sensory_mu, self.sensory_sigma)
-		w_reduced_sensory = tf.reduce_sum(input_tensor = sensory_w_activation, axis = 1)
-		f_prime = self._calculate_f_prime(v_pre, sensory_w_activation, w_reduced_sensory)
-
-		return f_prime
-
-	@tf.function
-	def _calculate_f_prime(self, v_pre, sensory_w_activation, w_reduced_sensory):
-		'''
-		Helper function to calculate f'
-		'''
-
-		# Unfold the ODE multiple times into one RNN step
-		w_activation = self.W * self._sigmoid(v_pre, self.mu, self.sigma)
-		w_reduced_synapse = tf.reduce_sum(input_tensor = w_activation, axis = 1)
-		sensory_in = self.sensory_erev * sensory_w_activation
-		synapse_in = self.erev * w_activation
-		sum_in = (
-			tf.reduce_sum(input_tensor = sensory_in, axis = 1) -
-				v_pre * w_reduced_synapse + tf.reduce_sum(input_tensor = synapse_in, axis = 1) - 
-					v_pre * w_reduced_sensory
-		)
-
-		return 1 / self.cm_t * (self.gleak * (self.vleak - v_pre) + sum_in)
-
-	@tf.function
-	def _sigmoid(self, v_pre, mu, sigma):
-		v_pre = tf.reshape(v_pre, [-1, v_pre.shape[-1], 1])
-		mues = v_pre - mu
-		x = sigma * mues
-		return tf.nn.sigmoid(x)
-
-# References
-# https://splunktool.com/how-can-i-implement-a-custom-rnn-specifically-an-esn-in-tensorflow
-# https://colab.research.google.com/github/luckykadam/adder/blob/master/rnn_full_adder.ipynb
-# https://www.tutorialexample.com/build-custom-rnn-by-inheriting-rnncell-in-tensorflow-tensorflow-tutorial/
-# https://notebook.community/tensorflow/docs-l10n/site/en-snapshot/guide/migrate
-# https://www.tensorflow.org/api_docs/python/tf/keras/layers/AbstractRNNCell
-# https://www.tensorflow.org/guide/keras/custom_layers_and_models/#layers_are_recursively_composable
-# https://www.tensorflow.org/guide/function#creating_tfvariables
