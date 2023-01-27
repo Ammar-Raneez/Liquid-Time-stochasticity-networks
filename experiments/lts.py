@@ -32,6 +32,9 @@ class LTSCell(tf.keras.layers.Layer):
 		self.units = units
 		self.built = False
 
+		self._time_step = 1.0
+		self._brownian_motion = None
+
 		# Number of SDE solver steps in one RNN step
 		self._sde_solver_unfolds = 6
 		self._solver = SDESolver.EulerMaruyama
@@ -161,8 +164,8 @@ class LTSCell(tf.keras.layers.Layer):
 				[self.units, self.units],
 				minval = 0.3,
 				maxval = 0.8,
-				dtype = tf.float32)
-			,
+				dtype = tf.float32
+			),
 			name = 'mu',
 			trainable = True,
 		)
@@ -205,6 +208,16 @@ class LTSCell(tf.keras.layers.Layer):
 			name = 'erev',
 			trainable = True,
 			shape = [self.units, self.units]
+		)
+
+		# Define a simple Wiener process (Brownian motion)
+		self._brownian_motion = tf.Variable(
+			tf.random.normal(
+				[self.units],
+				mean = 0.0,
+				stddev = tf.sqrt(self._time_step),
+				dtype = tf.float32
+			)
 		)
 
 		# Synaptic leakage conductance variables of the neural dynamics of small species
@@ -309,21 +322,10 @@ class LTSCell(tf.keras.layers.Layer):
 		return inputs
 
 	@tf.function
-	def _sde_solver_euler_maruyama(self, inputs, sstates):
+	def _sde_solver_euler_maruyama(self, inputs, states):
 		'''
 		Implement Euler Maruyama implicit SDE solver
 		'''
-
-		# Define a simple Wiener process (Brownian motion)
-		time_step = 1
-		brownian_motion = tf.Variable(
-			tf.random.normal(
-				[self.units],
-				mean = 0.0,
-				stddev = tf.sqrt(time_step),
-				dtype = tf.float32
-			)
-		)
 
 		for _ in range(self._sde_solver_unfolds):
 			# Compute drift and diffusion terms
@@ -331,7 +333,8 @@ class LTSCell(tf.keras.layers.Layer):
 			diffusion = self._sde_solver_diffusion(inputs, states)
 
 			# Compute the next state
-			states = states + drift * time_step + diffusion * brownian_motion
+			states = states + drift * self._time_step + diffusion * self._brownian_motion
+			states = tf.reshape(states, shape=[int(self._time_step), self.units])
 
 		return states
 
@@ -352,7 +355,7 @@ class LTSCell(tf.keras.layers.Layer):
 		w_numerator_sensory = tf.reduce_sum(input_tensor = sensory_rev_activation, axis = 1)
 		w_denominator_sensory = tf.reduce_sum(input_tensor = sensory_w_activation, axis = 1)
 
-		for _ in range(self._ode_solver_unfolds):
+		for _ in range(self._sde_solver_unfolds):
 			w_activation = self.W * self._sigmoid(v_pre, self.mu, self.sigma)
 
 			rev_activation = w_activation * self.erev
@@ -373,5 +376,11 @@ class LTSCell(tf.keras.layers.Layer):
 		Compute the diffusion term of the Euler-Maruyama SDE solver
 		'''
 
-		pass
+		return 1.0
 
+	@tf.function
+	def _sigmoid(self, v_pre, mu, sigma):
+		v_pre = tf.reshape(v_pre, [-1, v_pre.shape[-1], 1])
+		mues = v_pre - mu
+		x = sigma * mues
+		return tf.nn.sigmoid(x)
