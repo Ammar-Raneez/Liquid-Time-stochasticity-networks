@@ -75,7 +75,7 @@ class LTSCell(tf.keras.layers.Layer):
 		'''
 
 		self.input_size = int(input_shape[-1])
-		self._get_variables()
+		self._init_variables()
 		self.built = True
 
 	@tf.function
@@ -86,7 +86,7 @@ class LTSCell(tf.keras.layers.Layer):
 		by calculating the SDE solver to generate the next output and state
 		'''
 
-		inputs = self._map_inputs(inputs)
+		inputs = self._map_weights_and_biases(inputs)
 		next_state = self._sde_solver_euler_maruyama(inputs, states)
 		output = next_state
 		return output, next_state
@@ -101,7 +101,7 @@ class LTSCell(tf.keras.layers.Layer):
 		return config
 
 	# Helper methods
-	def _get_variables(self):
+	def _init_variables(self):
 		'''
 		Creates the variables to be used within __call__
 		'''
@@ -288,9 +288,8 @@ class LTSCell(tf.keras.layers.Layer):
 				shape = [self.units]
 			)
 
-	def _map_inputs(self, inputs):
+	def _map_weights_and_biases(self, inputs):
 		'''
-		Maps the inputs to the sensory layer
 		Initializes weights & biases to be used
 		'''
 
