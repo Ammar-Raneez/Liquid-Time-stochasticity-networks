@@ -1,6 +1,6 @@
 '''
 A TensorFlow V2 implementation of the Liquid Time-Stochasticity cell proposed
-by {......... ADD REFERENCE HERE .........}
+by Raneez and Wirasingha (2023) at https://doi.org/10.1109/CCWC57344.2023.10099071
 
 An RNN with continuous-time hidden
 states determined by stochastic differential equations
@@ -25,6 +25,7 @@ class LTSCell(tf.keras.layers.Layer):
 		'''
 		Initializes the LTS cell & parameters
 		Calls parent Layer constructor to initialize required fields
+		Variables adapted from ltc.py
 		'''
 
 		super(LTSCell, self).__init__(**kwargs)
@@ -100,7 +101,7 @@ class LTSCell(tf.keras.layers.Layer):
 		config.update({ 'units': self.units })
 		return config
 
-	# Helper methods
+	### Helper methods ###
 	def _init_variables(self):
 		'''
 		Creates the variables to be used within __call__
@@ -383,3 +384,13 @@ class LTSCell(tf.keras.layers.Layer):
 		mues = v_pre - mu
 		x = sigma * mues
 		return tf.nn.sigmoid(x)
+
+# References
+# https://splunktool.com/how-can-i-implement-a-custom-rnn-specifically-an-esn-in-tensorflow
+# https://colab.research.google.com/github/luckykadam/adder/blob/master/rnn_full_adder.ipynb
+# https://www.tutorialexample.com/build-custom-rnn-by-inheriting-rnncell-in-tensorflow-tensorflow-tutorial/
+# https://notebook.community/tensorflow/docs-l10n/site/en-snapshot/guide/migrate
+# https://www.tensorflow.org/api_docs/python/tf/keras/layers/AbstractRNNCell
+# https://www.tensorflow.org/guide/keras/custom_layers_and_models/#layers_are_recursively_composable
+# https://www.tensorflow.org/guide/function#creating_tfvariables
+# https://docs.sciml.ai/DiffEqDocs/stable/solvers/sde_solve/#Full-List-of-Methods

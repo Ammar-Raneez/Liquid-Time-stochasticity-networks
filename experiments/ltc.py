@@ -1,6 +1,6 @@
 '''
 A TensorFlow V2 implementation of the Liquid Time-Constant cell proposed
-by Hasani et al., (2020) at https://arxiv.org/pdf/2006.04439.pdf
+by Hasani et al. (2020) at https://arxiv.org/pdf/2006.04439.pdf
 
 An RNN with continuous-time hidden
 states determined by ordinary differential equations
@@ -142,7 +142,7 @@ class LTCCell(tf.keras.layers.Layer):
 		config.update({ 'units': self.units })
 		return config
 
-	# Helper methods
+	### Helper methods ###
 	def _get_variables(self):
 		'''
 		Creates the variables to be used within __call__
